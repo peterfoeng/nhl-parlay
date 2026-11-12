@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { summarizeHistory, parlayProfit } from "@/lib/history/summary";
 import { pickStarter, type StarterCandidate } from "@/lib/slate/starter";
 import { parseCsv } from "@/lib/moneypuck/csv";
-import { chooseOpenSlateDate, gameClockLabel, previousDate } from "@/lib/time";
+import { chooseOpenSlateDate, gameClockLabel, melbourneSlateDates, melbourneToday, previousDate } from "@/lib/time";
 
 describe("starter", () => {
   const goalies: StarterCandidate[] = [
@@ -63,6 +63,37 @@ describe("dates and clocks", () => {
       }),
     ).toContain("4:00");
     expect(gameClockLabel({ gameState: "OFF", startTimeUtc: "2026-11-12T00:00:00Z" })).toBe("Final");
+  });
+
+  it("keeps the same Melbourne slate at the 20:00 UTC cron as later that morning", () => {
+    const hourStart = new Date("2026-11-12T20:00:00Z");
+    const hourEnd = new Date("2026-11-12T20:59:00Z");
+    const laterMorning = new Date("2026-11-12T22:39:00Z");
+    expect(melbourneToday(hourStart)).toBe("2026-11-13");
+    expect(melbourneToday(hourEnd)).toBe("2026-11-13");
+    expect(melbourneToday(laterMorning)).toBe("2026-11-13");
+    expect(melbourneSlateDates(hourEnd)).toEqual(["2026-11-11", "2026-11-12", "2026-11-13", "2026-11-14"]);
+    expect(melbourneSlateDates(laterMorning)).toEqual(melbourneSlateDates(hourEnd));
+
+    const standardTime = new Date("2026-07-12T20:59:00Z");
+    expect(melbourneToday(standardTime)).toBe("2026-07-13");
+    expect(melbourneSlateDates(standardTime)).toEqual(["2026-07-11", "2026-07-12", "2026-07-13", "2026-07-14"]);
+
+    const games = [
+      { slateDate: "2026-11-11", gameState: "OFF", startTimeUtc: "2026-11-12T00:00:00Z" },
+      { slateDate: "2026-11-12", gameState: "OFF", startTimeUtc: "2026-11-12T17:00:00Z" },
+      { slateDate: "2026-11-12", gameState: "FUT", startTimeUtc: "2026-11-13T00:00:00Z" },
+      { slateDate: "2026-11-13", gameState: "FUT", startTimeUtc: "2026-11-14T02:00:00Z" },
+    ];
+    expect(chooseOpenSlateDate(games)).toBe("2026-11-12");
+    expect(previousDate("2026-11-12")).toBe("2026-11-11");
+    expect(
+      chooseOpenSlateDate(
+        games.map((game) =>
+          game.startTimeUtc === "2026-11-12T17:00:00Z" ? { ...game, gameState: "LIVE" } : game,
+        ),
+      ),
+    ).toBe("2026-11-12");
   });
 });
 
