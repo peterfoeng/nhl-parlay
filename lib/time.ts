@@ -9,6 +9,12 @@ export function melbourneToday(now = new Date()): string {
   }).format(now);
 }
 
+/** NHL dates the morning job reads. The day is Melbourne's, not UTC, so the hour inside that morning does not move the window. */
+export function melbourneSlateDates(now = new Date()): string[] {
+  const today = melbourneToday(now);
+  return [shiftDate(today, -2), shiftDate(today, -1), today, shiftDate(today, 1)];
+}
+
 export function previousDate(isoDate: string): string {
   return shiftDate(isoDate, -1);
 }

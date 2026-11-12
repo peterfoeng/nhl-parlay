@@ -69,10 +69,12 @@ See the About page in the app for the weights. Short version: last 10 games, dec
 
 ## Cron and deploy
 
-`vercel.json` schedules `GET /api/cron` at `0 22 * * *` UTC.
+`vercel.json` schedules `GET /api/cron` at `0 20 * * *` UTC. On the Hobby plan the job runs once sometime during that hour (20:00–20:59 UTC):
 
-- During Australian daylight saving (AEDT, UTC+11, roughly October to April) that is 9:00am Melbourne.
-- During standard time (AEST, UTC+10) it is 8:00am Melbourne.
+- During Australian daylight saving (AEDT, UTC+11, roughly October to April) that is 7:00–7:59am Melbourne.
+- During standard time (AEST, UTC+10) it is 6:00–6:59am Melbourne.
+
+The board is ready before 8:00am Melbourne. The job uses the Melbourne calendar date, already the new day by 6am. It builds the earliest NHL date that still has a game to play or in progress — the slate whose games start later that Melbourne day, including when an early game on it has already dropped the puck — and grades the date before it.
 
 The route checks `Authorization: Bearer $CRON_SECRET` and returns 401 otherwise. Set `CRON_SECRET` in the Vercel project. The job is safe to run twice. Games that have not started are priced again. A live or final game keeps its saved price, and an unpriced leg stays “no price”. The odds block in the response is from this run. The Odds API line includes `creditsUsed` and `requestsRemaining` (`x-requests-remaining`) so a repeat inside the cache window shows 0 credits spent.
 

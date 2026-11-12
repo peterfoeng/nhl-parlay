@@ -1,6 +1,6 @@
 import { buildDate } from "@/lib/slate/build";
 import { fetchSchedule } from "@/lib/nhl/client";
-import { chooseOpenSlateDate, melbourneToday, previousDate, shiftDate } from "@/lib/time";
+import { chooseOpenSlateDate, melbourneSlateDates, previousDate } from "@/lib/time";
 import type { Slate } from "@/lib/types";
 
 export type JobReport = {
@@ -25,8 +25,7 @@ export type JobReport = {
 };
 
 export async function runDaily(): Promise<{ featured: JobReport; previous: JobReport | null }> {
-  const today = melbourneToday();
-  const dates = [shiftDate(today, -2), shiftDate(today, -1), today, shiftDate(today, 1)];
+  const dates = melbourneSlateDates();
   const games = (
     await Promise.all(
       dates.map(async (date) => {
