@@ -62,6 +62,9 @@ export type OddsProviderReport = {
   error?: string;
   httpStatus?: number;
   quotes: number;
+  requestsRemaining?: number;
+  creditsUsed?: number;
+  fromCache?: boolean;
 };
 
 export type Slate = {

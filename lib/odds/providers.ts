@@ -1,26 +1,42 @@
 import { getText, mapPool } from "@/lib/http";
 import { matchEventToGame, type MatchableGame } from "@/lib/odds/match";
-import { quotesFromOddsApi } from "@/lib/odds/odds-api";
+import { fetchOddsApi } from "@/lib/odds/odds-api";
 import { quotesFromPointsbetEvent, type PointsBetMarket } from "@/lib/odds/pointsbet";
 import { quotesFromSportsbetPayload } from "@/lib/odds/classify";
 import type { ProviderResult, PriceQuote } from "@/lib/odds/types";
 import type { ScheduledGame } from "@/lib/types";
 
+const PROVIDERS = new Set(["sportsbet", "pointsbet", "oddsapi"]);
+
 const SPORTS_ROOT = "https://www.sportsbet.com.au/apigw/sportsbook-sports/Sportsbook/Sports";
 const POINTS_ROOT = "https://api.au.pointsbet.com";
 
-export async function fetchAllOdds(games: ScheduledGame[]): Promise<ProviderResult[]> {
-  const order = (process.env.ODDS_PROVIDERS || "sportsbet,pointsbet,oddsapi")
+export function providerOrder(): string[] {
+  return (process.env.ODDS_PROVIDERS || "sportsbet,pointsbet,oddsapi")
     .split(",")
     .map((item) => item.trim().toLowerCase())
-    .filter(Boolean);
+    .filter((id) => PROVIDERS.has(id));
+}
+
+/** This run's status when every game on the slate has already started. */
+export function storedPricesKeptReport(): ProviderResult[] {
+  return providerOrder().map((id) => ({
+    id,
+    ok: true,
+    quotes: [],
+    error: "No games still to start; stored prices kept.",
+  }));
+}
+
+export async function fetchAllOdds(games: ScheduledGame[]): Promise<ProviderResult[]> {
+  if (!games.length) return storedPricesKeptReport();
   const runners: Record<string, () => Promise<ProviderResult>> = {
     sportsbet: () => fetchSportsbet(games),
     pointsbet: () => fetchPointsbet(games),
     oddsapi: () => fetchOddsApi(games),
   };
   const results: ProviderResult[] = [];
-  for (const id of order) {
+  for (const id of providerOrder()) {
     const run = runners[id];
     if (!run) continue;
     try {
@@ -133,54 +149,6 @@ export async function fetchPointsbet(games: ScheduledGame[]): Promise<ProviderRe
     quotes.push(...quotesFromPointsbetEvent(item.gameId, body));
   });
   return { id: "pointsbet", ok: true, quotes };
-}
-
-export async function fetchOddsApi(games: ScheduledGame[]): Promise<ProviderResult> {
-  const apiKey = process.env.ODDS_API_KEY;
-  if (!apiKey) {
-    return { id: "oddsapi", ok: false, skipped: true, error: "ODDS_API_KEY is not set.", quotes: [] };
-  }
-  const eventsResponse = await getText(
-    `https://api.the-odds-api.com/v4/sports/icehockey_nhl/events?apiKey=${encodeURIComponent(apiKey)}`,
-  );
-  if (!eventsResponse.ok) {
-    return {
-      id: "oddsapi",
-      ok: false,
-      httpStatus: eventsResponse.status,
-      error: `The Odds API HTTP ${eventsResponse.status}: ${redact(eventsResponse.text)}`,
-      quotes: [],
-    };
-  }
-  const events = JSON.parse(eventsResponse.text) as OddsApiEvent[];
-  const matched: Array<{ gameId: number; eventId: string }> = [];
-  for (const event of events) {
-    if (!event.id || !event.commence_time || !event.away_team || !event.home_team) continue;
-    const game = matchEventToGame(
-      { away: event.away_team, home: event.home_team, startsAt: event.commence_time },
-      toMatchable(games),
-    );
-    if (game) matched.push({ gameId: game.id, eventId: event.id });
-  }
-
-  const quotes: PriceQuote[] = [];
-  const markets = "player_goal_scorer_anytime,player_points,player_shots_on_goal";
-  await mapPool(matched, 3, async (item) => {
-    const url =
-      `https://api.the-odds-api.com/v4/sports/icehockey_nhl/events/${item.eventId}/odds` +
-      `?apiKey=${encodeURIComponent(apiKey)}&regions=au&markets=${markets}&oddsFormat=decimal`;
-    const response = await getText(url);
-    if (!response.ok) return;
-    const body = JSON.parse(response.text) as { bookmakers?: Parameters<typeof quotesFromOddsApi>[1] };
-    quotes.push(...quotesFromOddsApi(item.gameId, body.bookmakers ?? []));
-  });
-  return { id: "oddsapi", ok: true, quotes };
-}
-
-function redact(text: string): string {
-  const key = process.env.ODDS_API_KEY;
-  const cleaned = key ? text.replaceAll(key, "REDACTED") : text;
-  return cleaned.replace(/\s+/g, " ").slice(0, 180);
 }
 
 type CompetitionRef = { id: string; classId?: string };
@@ -325,11 +293,4 @@ type PointsBetListEvent = {
   awayTeam?: string;
   homeTeam?: string;
   startsAt?: string;
-};
-
-type OddsApiEvent = {
-  id?: string;
-  commence_time?: string;
-  home_team?: string;
-  away_team?: string;
 };

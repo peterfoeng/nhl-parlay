@@ -20,7 +20,7 @@ Grade a finished NHL date (box scores, not a made-up price):
 npm run job -- --grade 2026-11-10
 ```
 
-`--force` rebuilds a slate even after a game has started. Without it, a started slate keeps the prices it was saved with and only the results move.
+`--force` rebuilds a slate even after a game has started. Without it, a live or final game keeps the price it was saved with. Games that have not started are priced again, and the odds lines in the job result are from that run.
 
 `npm run job` with no date does what the morning cron does: build the next open NHL slate and grade the one before it.
 
@@ -45,7 +45,10 @@ Copy `.env.example` to `.env.local`. No real secrets ship in the repo.
 | --- | --- | --- |
 | `DATABASE_URL` | No | Postgres (Neon works). Unset uses the JSON file in `DATA_DIR`. |
 | `CRON_SECRET` | For `/api/cron` | Vercel sends `Authorization: Bearer <CRON_SECRET>`. The CLI does not use it. |
-| `ODDS_API_KEY` | No | The Odds API. The provider stays off when this is empty. |
+| `ODDS_API_KEY` | No | The Odds API. The provider stays off when this is empty. Read when the job runs. |
+| `ODDS_API_MARKETS` | No | Default `player_goal_scorer_anytime,player_points,player_shots_on_goal`. |
+| `ODDS_API_REGIONS` | No | Default `us`. NHL player props are on US books; `au` does not carry them. |
+| `ODDS_API_CACHE_HOURS` | No | How long a priced Odds API response stays in `http_cache`. Default 6. |
 | `ODDS_PROVIDERS` | No | Default `sportsbet,pointsbet,oddsapi`. |
 | `DATA_DIR` | No | File store and download cache. Default `./data`. |
 
@@ -56,7 +59,7 @@ Copy `.env.example` to `.env.local`. No real secrets ship in the repo.
 - Odds, in order, each allowed to fail:
   - Sportsbet public sportsbook JSON, with a normal browser user-agent and no login.
   - PointsBet public API (`api.au.pointsbet.com`).
-  - The Odds API, only with `ODDS_API_KEY`.
+  - The Odds API, only with `ODDS_API_KEY`. One US region, three player markets, decimal odds. A priced response is cached for several hours. The events list is free; each game costs markets × regions (3 credits with the defaults).
 
 A leg without a real price shows “no price” and is not eligible for the parlay. Edge is model probability minus `1 / decimal odds` (vig left in).
 
@@ -71,7 +74,7 @@ See the About page in the app for the weights. Short version: last 10 games, dec
 - During Australian daylight saving (AEDT, UTC+11, roughly October to April) that is 9:00am Melbourne.
 - During standard time (AEST, UTC+10) it is 8:00am Melbourne.
 
-The route checks `Authorization: Bearer $CRON_SECRET` and returns 401 otherwise. Set `CRON_SECRET` in the Vercel project. The job is safe to run twice: before puck drop it rebuilds, and after a game has started it keeps the saved prices and only grades.
+The route checks `Authorization: Bearer $CRON_SECRET` and returns 401 otherwise. Set `CRON_SECRET` in the Vercel project. The job is safe to run twice. Games that have not started are priced again. A live or final game keeps its saved price, and an unpriced leg stays “no price”. The odds block in the response is from this run. The Odds API line includes `creditsUsed` and `requestsRemaining` (`x-requests-remaining`) so a repeat inside the cache window shows 0 credits spent.
 
 `export const maxDuration = 60` is set on the cron route. The first run of a day downloads MoneyPuck and a few hundred game logs, so a cold start can use most of that minute. Later runs hit the cache. On Vercel’s free tier the cache is the database when `DATABASE_URL` is set (the file system does not persist between invocations).
 

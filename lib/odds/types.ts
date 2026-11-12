@@ -15,6 +15,12 @@ export type ProviderResult = {
   error?: string;
   httpStatus?: number;
   quotes: PriceQuote[];
+  /** Latest x-requests-remaining seen on this run, including a cached header. */
+  requestsRemaining?: number;
+  /** Credits spent on this run. Cache hits add nothing. */
+  creditsUsed?: number;
+  /** True when every priced event was served from http_cache. */
+  fromCache?: boolean;
 };
 
 export type OddsGame = {

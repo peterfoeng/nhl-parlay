@@ -72,8 +72,11 @@ export default function AboutPage() {
         <p className="mt-2">{PARLAY_RULE}</p>
         <p className="mt-2">
           Providers run in order and a later book does not overwrite an earlier price: Sportsbet, then PointsBet, then The
-          Odds API when <code>ODDS_API_KEY</code> is set. One provider failing leaves the others in place. Sportsbet has
-          refused this kind of host with a location block before, which is why the chain exists.
+          Odds API when <code>ODDS_API_KEY</code> is set. The Odds API prices anytime goals, over 0.5 points, and over
+          1.5 / 2.5 shots from US books, because those NHL props are not on the Australian feed. A rerun fetches prices
+          for games that have not started and leaves a live or final game on the price already saved. One provider
+          failing leaves the others in place. Sportsbet has refused this kind of host with a location block before, which
+          is why the chain exists.
         </p>
       </section>
 
