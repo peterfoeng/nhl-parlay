@@ -11,7 +11,16 @@ export type JobReport = {
   pricedLegs: number;
   parlay: string | null;
   parlayStatus: string | null;
-  odds: Array<{ id: string; ok: boolean; skipped?: boolean; quotes: number; error?: string }>;
+  odds: Array<{
+    id: string;
+    ok: boolean;
+    skipped?: boolean;
+    quotes: number;
+    error?: string;
+    requestsRemaining?: number;
+    creditsUsed?: number;
+    fromCache?: boolean;
+  }>;
   gradedLegs: { hit: number; dead: number; void: number; pending: number };
 };
 
@@ -88,6 +97,9 @@ export function report(action: string, slate: Slate): JobReport {
       skipped: item.skipped,
       quotes: item.quotes,
       error: item.error,
+      requestsRemaining: item.requestsRemaining,
+      creditsUsed: item.creditsUsed,
+      fromCache: item.fromCache,
     })),
     gradedLegs: counts,
   };

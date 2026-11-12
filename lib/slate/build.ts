@@ -1,8 +1,6 @@
-import { impliedProbability, edge } from "@/lib/odds/decimal";
-import { quoteMatchesPlayer } from "@/lib/odds/names";
 import { fetchAllOdds } from "@/lib/odds/providers";
 import type { ProviderResult } from "@/lib/odds/types";
-import { currentStat, gradeLeg, gradeParlay, hitCount, isFinalState, isLiveState } from "@/lib/grading/grade";
+import { currentStat, gradeLeg, gradeParlay, hitCount, isFinalState } from "@/lib/grading/grade";
 import { MODEL } from "@/lib/model/constants";
 import { opponentShotFactor } from "@/lib/model/adjust";
 import { projectPlayer } from "@/lib/model/player";
@@ -14,7 +12,14 @@ import {
   fetchSchedule,
   type RosterPlayer,
 } from "@/lib/nhl/client";
-import { combinedDecimalOdds, combinedModelProbability, selectParlay } from "@/lib/parlay/select";
+import {
+  applyProviderPrices,
+  gameStillToPrice,
+  restorePrices,
+  repriceOpenLegs,
+  syncParlay,
+  toOddsReport,
+} from "@/lib/slate/prices";
 import { pickStarter, teamGoalieFactor, type StarterCandidate } from "@/lib/slate/starter";
 import { getStore } from "@/lib/storage";
 import { round } from "@/lib/format";
@@ -26,34 +31,43 @@ export async function buildDate(date: string, options?: { force?: boolean }): Pr
   const schedule = await fetchSchedule(date);
   if (!schedule.length) return null;
   const existing = await getStore().getSlate(date);
-  const started = schedule.some((game) => isLiveState(game.gameState) || isFinalState(game.gameState));
-  if (existing && started && !options?.force) {
-    console.log(`[job] ${date} already started, keeping the saved board and refreshing results`);
-    return applyProgress(existing);
+  const open = schedule.filter((game) => gameStillToPrice(game));
+  if (existing && open.length !== schedule.length && !options?.force) {
+    console.log(
+      `[job] ${date}: ${open.length} of ${schedule.length} games still to start; refreshing those prices and keeping the rest`,
+    );
+    const refreshed = await refreshSavedOdds(existing, schedule, open);
+    return applyProgress(refreshed);
   }
   console.log(`[job] building ${date} (${schedule.length} games)`);
-  const slate = await computeSlate(date, schedule);
+  const slate = await computeSlate(date, schedule, existing);
   await getStore().putSlate(slate);
   return applyProgress(slate);
 }
 
-async function computeSlate(date: string, schedule: ScheduledGame[]): Promise<Slate> {
+async function refreshSavedOdds(existing: Slate, schedule: ScheduledGame[], open: ScheduledGame[]): Promise<Slate> {
+  const next = structuredClone(existing);
+  adoptSchedule(next, schedule);
+  const odds = await fetchAllOdds(open);
+  logOdds(odds);
+  if (open.length && odds.some((result) => result.ok)) {
+    const teams = [...new Set(open.flatMap((game) => [game.away.abbrev, game.home.abbrev]))];
+    const rosters = await loadRosters(teams, next.season);
+    const openIds = new Set(open.map((game) => game.id));
+    repriceOpenLegs(next.legs, openIds, odds, rosters);
+    syncParlay(next, openIds);
+  }
+  next.oddsReport = toOddsReport(odds);
+  return next;
+}
+
+async function computeSlate(date: string, schedule: ScheduledGame[], existing: Slate | null): Promise<Slate> {
   const season = schedule.find((game) => game.season)?.season || 20262027;
   const moneypuck = await loadMoneyPuck(season);
   const yesterday = previousDate(date);
   const yesterdayTeams = await teamsOn(yesterday);
   const teams = [...new Set(schedule.flatMap((game) => [game.away.abbrev, game.home.abbrev]))];
-  const rosters = new Map<string, RosterPlayer[]>();
-  await Promise.all(
-    teams.map(async (team) => {
-      try {
-        rosters.set(team, await fetchRoster(team, season));
-      } catch (error) {
-        console.log(`[job] roster ${team} skipped: ${error instanceof Error ? error.message : error}`);
-        rosters.set(team, []);
-      }
-    }),
-  );
+  const rosters = await loadRosters(teams, season);
 
   const candidates = pickCandidates(rosters, moneypuck);
   const goalieIds = teams.flatMap((team) => (rosters.get(team) ?? []).filter((player) => player.position === "G").map((player) => player.id));
@@ -133,46 +147,25 @@ async function computeSlate(date: string, schedule: ScheduledGame[]): Promise<Sl
     }
   }
 
-  const odds = await fetchAllOdds(schedule);
-  for (const result of odds) {
-    const detail = result.skipped ? "skipped" : result.ok ? `${result.quotes.length} prices` : result.error;
-    console.log(`[job] odds ${result.id}: ${detail}`);
-  }
-  attachPrices(legs, odds, rosters);
-
-  const selection = selectParlay(
-    legs.map((leg) => ({
-      id: leg.id,
-      gameId: leg.gameId,
-      modelProb: leg.modelProb,
-      decimalOdds: leg.decimalOdds,
-      edge: leg.edge,
-    })),
-  );
-  const chosen = (selection.legIds ?? [])
-    .map((id) => legs.find((leg) => leg.id === id))
-    .filter((leg): leg is Leg => Boolean(leg));
-  const parlay =
-    chosen.length === 3
-      ? {
-          legIds: chosen.map((leg) => leg.id),
-          decimalOdds: round(combinedDecimalOdds(chosen.map((leg) => leg.decimalOdds ?? 0)), 4),
-          modelProb: round(combinedModelProbability(chosen.map((leg) => leg.modelProb))),
-          impliedProb: 0,
-          edge: 0,
-          status: "ALIVE" as const,
-          hitCount: 0,
-        }
-      : null;
-  if (parlay) {
-    const implied = impliedProbability(parlay.decimalOdds) ?? 0;
-    parlay.impliedProb = round(implied);
-    parlay.edge = round(parlay.modelProb - implied);
+  const open = schedule.filter((game) => gameStillToPrice(game));
+  const openIds = new Set(open.map((game) => game.id));
+  const startedIds = new Set(schedule.filter((game) => !openIds.has(game.id)).map((game) => game.id));
+  if (existing) restorePrices(legs, existing.legs, startedIds);
+  const odds = await fetchAllOdds(open);
+  logOdds(odds);
+  if (odds.some((result) => result.ok)) {
+    applyProviderPrices(
+      legs.filter((leg) => openIds.has(leg.gameId)),
+      odds,
+      rosters,
+    );
+  } else if (existing) {
+    restorePrices(legs, existing.legs, openIds);
   }
 
   const starts = schedule.map((game) => game.startTimeUtc).sort();
   const priced = legs.filter((leg) => leg.decimalOdds != null).length;
-  return {
+  const slate: Slate = {
     slateDate: date,
     season,
     builtAt: new Date().toISOString(),
@@ -181,58 +174,61 @@ async function computeSlate(date: string, schedule: ScheduledGame[]): Promise<Sl
     firstPuck: formatKickoff(starts[0]),
     games: schedule.map(toSlateGame),
     legs,
-    parlay,
-    parlayNote: parlay ? selection.note : `${selection.note} ${priced} of ${legs.length} modeled legs had a posted price.`,
+    parlay: null,
+    parlayNote: "",
     modelNote: useMoneyPuckSeason
       ? "Season goal rates blend actual goals with MoneyPuck expected goals, then blend with the recent NHL game log. Opponent shots allowed and goalie quality are MoneyPuck season totals."
       : "This date is already in the past, so player rates use only NHL game logs from before the slate. Opponent shots and goalie quality still come from the current MoneyPuck file, which includes later games.",
-    oddsReport: odds.map((result) => ({
-      id: result.id,
-      ok: result.ok,
-      skipped: result.skipped,
-      error: result.error,
-      httpStatus: result.httpStatus,
-      quotes: result.quotes.length,
-    })),
+    oddsReport: toOddsReport(odds),
   };
+  syncParlay(slate, new Set(schedule.map((game) => game.id)), ` ${priced} of ${legs.length} modeled legs had a posted price.`);
+  return slate;
 }
 
-function attachPrices(legs: Leg[], results: ProviderResult[], rosters: Map<string, RosterPlayer[]>): void {
-  const namesByGame = new Map<number, string[]>();
-  for (const leg of legs) {
-    const names = namesByGame.get(leg.gameId) ?? [];
-    if (!names.includes(leg.playerName)) names.push(leg.playerName);
-    namesByGame.set(leg.gameId, names);
-  }
-  for (const roster of rosters.values()) {
-    for (const player of roster) {
-      for (const leg of legs) {
-        if (leg.teamAbbrev !== player.team) continue;
-        const names = namesByGame.get(leg.gameId);
-        if (names && !names.includes(player.name)) names.push(player.name);
+async function loadRosters(teams: string[], season: number): Promise<Map<string, RosterPlayer[]>> {
+  const rosters = new Map<string, RosterPlayer[]>();
+  await Promise.all(
+    teams.map(async (team) => {
+      try {
+        rosters.set(team, await fetchRoster(team, season));
+      } catch (error) {
+        console.log(`[job] roster ${team} skipped: ${error instanceof Error ? error.message : error}`);
+        rosters.set(team, []);
       }
-    }
-  }
+    }),
+  );
+  return rosters;
+}
 
-  for (const leg of legs) {
-    const names = namesByGame.get(leg.gameId) ?? [leg.playerName];
-    for (const result of results) {
-      const quote = result.quotes.find(
-        (item) =>
-          item.gameId === leg.gameId &&
-          item.market === leg.market &&
-          quoteMatchesPlayer(item.playerName, leg.playerName, names),
-      );
-      if (!quote) continue;
-      const implied = impliedProbability(quote.decimalOdds);
-      const legEdge = edge(leg.modelProb, quote.decimalOdds);
-      if (implied == null || legEdge == null) continue;
-      leg.decimalOdds = round(quote.decimalOdds, 4);
-      leg.impliedProb = round(implied);
-      leg.edge = round(legEdge);
-      leg.priceSource = quote.source;
-      break;
-    }
+function adoptSchedule(slate: Slate, schedule: ScheduledGame[]): void {
+  for (const scheduled of schedule) {
+    const game = slate.games.find((item) => item.id === scheduled.id);
+    if (!game) continue;
+    const fresh = toSlateGame(scheduled);
+    game.gameState = fresh.gameState;
+    game.clockLabel = fresh.clockLabel;
+    game.periodNumber = fresh.periodNumber;
+    game.periodType = fresh.periodType;
+    game.startTimeUtc = fresh.startTimeUtc;
+  }
+  for (const leg of slate.legs) {
+    const game = slate.games.find((item) => item.id === leg.gameId);
+    if (!game) continue;
+    leg.gameState = game.gameState;
+    leg.clockLabel = game.clockLabel;
+    leg.startTimeUtc = game.startTimeUtc;
+  }
+}
+
+function logOdds(results: ProviderResult[]): void {
+  for (const result of results) {
+    const detail = result.skipped ? "skipped" : result.ok ? `${result.quotes.length} prices` : result.error;
+    const usage = [
+      result.creditsUsed != null ? `spent ${result.creditsUsed}` : "",
+      result.requestsRemaining != null ? `remaining ${result.requestsRemaining}` : "",
+      result.fromCache ? "cached" : "",
+    ].filter(Boolean);
+    console.log(`[job] odds ${result.id}: ${detail}${usage.length ? ` (${usage.join(", ")})` : ""}`);
   }
 }
 

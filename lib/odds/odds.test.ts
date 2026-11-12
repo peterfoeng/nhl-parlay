@@ -4,7 +4,7 @@ import { quotesFromPointsbetEvent } from "@/lib/odds/pointsbet";
 import { quotesFromSportsbetPayload } from "@/lib/odds/classify";
 import { americanToDecimal, edge, impliedProbability, toDecimalOdds } from "@/lib/odds/decimal";
 import { matchEventToGame } from "@/lib/odds/match";
-import { namesMatch, quoteMatchesPlayer } from "@/lib/odds/names";
+import { namesMatch, playerIdForQuote, quoteMatchesPlayer } from "@/lib/odds/names";
 
 describe("decimal odds", () => {
   it("converts American prices and reads implied probability", () => {
@@ -19,16 +19,39 @@ describe("decimal odds", () => {
 });
 
 describe("names", () => {
-  it("matches initials and rejects a shared last name", () => {
+  it("matches initials and accents, and rejects a shared last name", () => {
     expect(namesMatch("N. Kucherov", "Nikita Kucherov")).toBe(true);
     expect(namesMatch("Erik Karlsson", "Érik Karlsson")).toBe(true);
+    expect(namesMatch("Tim Stützle", "Tim Stutzle")).toBe(true);
     expect(namesMatch("Sebastian Aho", "Sebastian Aho")).toBe(true);
+    expect(namesMatch("J.T. Miller", "JT Miller")).toBe(true);
+    expect(namesMatch("J.T. Miller", "Jake Miller")).toBe(false);
+    expect(namesMatch("P.L. Dubois", "Pierre-Luc Dubois")).toBe(true);
     expect(
       quoteMatchesPlayer("Kucherov", "Nikita Kucherov", ["Nikita Kucherov", "Nikolai Kucherov"]),
     ).toBe(false);
     expect(
       quoteMatchesPlayer("N. Kucherov", "Nikita Kucherov", ["Nikita Kucherov", "Tage Thompson"]),
     ).toBe(true);
+    expect(
+      playerIdForQuote("N. Kucherov", [
+        { id: 86, name: "Nikita Kucherov" },
+        { id: 99, name: "Nikolai Kucherov" },
+      ]),
+    ).toBeNull();
+    expect(
+      playerIdForQuote("N. Kucherov", [
+        { id: 86, name: "Nikita Kucherov" },
+        { id: 7, name: "Tage Thompson" },
+      ]),
+    ).toBe(86);
+    expect(
+      playerIdForQuote("J.T. Miller", [
+        { id: 9, name: "JT Miller" },
+        { id: 10, name: "Jake Miller" },
+      ]),
+    ).toBe(9);
+    expect(playerIdForQuote("Tim Stützle", [{ id: 18, name: "Tim Stutzle" }])).toBe(18);
   });
 });
 
@@ -126,5 +149,53 @@ describe("book parsers", () => {
       "oddsapi:sportsbet:anytime_point:Zach Benson",
       "oddsapi:sportsbet:sog_over_15:John Carlson",
     ]);
+  });
+
+  it("maps anytime goals, over 0.5 points, and 1.5 / 2.5 shots, including accents and initials", () => {
+    const quotes = quotesFromOddsApi(8, [
+      {
+        key: "draftkings",
+        markets: [
+          {
+            key: "player_goal_scorer_anytime",
+            outcomes: [
+              { name: "Yes", description: "N. Kucherov", price: 3.4 },
+              { name: "No", description: "N. Kucherov", price: 1.3 },
+              { name: "Yes", description: "Kucherov, Nikita", price: 3.1 },
+            ],
+          },
+          {
+            key: "player_points",
+            outcomes: [
+              { name: "Over", description: "Tim Stützle", price: 1.72, point: 0.5 },
+              { name: "Under", description: "Tim Stützle", price: 2.05, point: 0.5 },
+              { name: "Over", description: "Connor McDavid (EDM)", price: 1.55, point: 1.5 },
+            ],
+          },
+          {
+            key: "player_shots_on_goal",
+            outcomes: [
+              { name: "Over", description: "P.L. Dubois", price: 1.66, point: 1.5 },
+              { name: "Over", description: "P.L. Dubois", price: 2.2, point: 2.5 },
+              { name: "Over", description: "P.L. Dubois", price: 3.4, point: 3.5 },
+              { name: "Under", description: "P.L. Dubois", price: 2.1, point: 2.5 },
+            ],
+          },
+          {
+            key: "player_shots_on_goal_alternate",
+            outcomes: [{ name: "Over", description: "J.T. Miller", price: 1.91, point: 2.5 }],
+          },
+        ],
+      },
+    ]);
+    expect(quotes.map((quote) => `${quote.market}:${quote.playerName}:${quote.decimalOdds}`)).toEqual([
+      "anytime_goal:N. Kucherov:3.4",
+      "anytime_goal:Nikita Kucherov:3.1",
+      "anytime_point:Tim Stützle:1.72",
+      "sog_over_15:P.L. Dubois:1.66",
+      "sog_over_25:P.L. Dubois:2.2",
+      "sog_over_25:J.T. Miller:1.91",
+    ]);
+    expect(quotes.every((quote) => quote.source === "oddsapi:draftkings" && quote.gameId === 8)).toBe(true);
   });
 });

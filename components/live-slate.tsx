@@ -89,9 +89,21 @@ function OddsNotes({ slate }: { slate: Slate }) {
     <ul className="mt-3 space-y-1 text-xs text-muted">
       {slate.oddsReport.map((item) => (
         <li key={item.id}>
-          {providerLabel(item.id)}: {item.skipped ? "not configured" : item.ok ? `${item.quotes} prices` : item.error}
+          {providerLabel(item.id)}: {oddsDetail(item)}
         </li>
       ))}
     </ul>
   );
+}
+
+function oddsDetail(item: Slate["oddsReport"][number]): string {
+  const usage = [
+    item.fromCache ? "cached" : "",
+    item.creditsUsed != null ? `${item.creditsUsed} credits this run` : "",
+    item.requestsRemaining != null ? `${item.requestsRemaining} credits left` : "",
+  ].filter(Boolean);
+  if (item.skipped) return [item.error ?? "not configured", ...usage].join(", ");
+  if (!item.ok) return [item.error ?? "failed", ...usage].join(", ");
+  if (item.quotes === 0 && item.error) return [item.error, ...usage].join(", ");
+  return [`${item.quotes} prices`, ...usage, item.error ?? ""].filter(Boolean).join(", ");
 }
