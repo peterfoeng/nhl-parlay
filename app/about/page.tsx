@@ -71,6 +71,13 @@ export default function AboutPage() {
         </p>
         <p className="mt-2">{PARLAY_RULE}</p>
         <p className="mt-2">
+          A multi of 2 to 6 legs uses that same rule, with the number of games set to the number of legs. It is
+          calculated from the saved slate when you ask for it. Nothing is stored until you tap Track this multi. The
+          saved multi keeps the prices and model chances from that moment. The morning job grades it with the daily
+          parlay. While this site is open and a game is on, the page reads the NHL box score about once a minute.
+          Tracking does not call the odds provider.
+        </p>
+        <p className="mt-2">
           Providers run in order and a later book does not overwrite an earlier price: Sportsbet, then PointsBet, then The
           Odds API when <code>ODDS_API_KEY</code> is set. The Odds API prices anytime goals, over 0.5 points, and over
           1.5 / 2.5 shots from US books, because those NHL props are not on the Australian feed. A rerun fetches prices

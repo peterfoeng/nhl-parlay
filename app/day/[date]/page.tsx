@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import { connection } from "next/server";
 import { LiveSlate } from "@/components/live-slate";
+import { readTracked } from "@/lib/multis/persist";
 import { shouldPoll } from "@/lib/slate/build";
 import { getStore } from "@/lib/storage";
 
@@ -27,12 +28,14 @@ async function DayBody({ params }: { params: Promise<{ date: string }> }) {
       </section>
     );
   }
+  const tracked = (await readTracked([slate])).filter((multi) => multi.slateDate === slate.slateDate);
   return (
     <LiveSlate
       key={`${slate.slateDate}:${slate.builtAt}`}
       slate={slate}
       poll={shouldPoll(slate)}
       otherDates={slates.map((item) => item.slateDate)}
+      tracked={tracked}
     />
   );
 }

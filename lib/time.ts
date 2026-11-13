@@ -53,6 +53,16 @@ export function formatKickoff(isoInstant: string): string {
   }).format(new Date(isoInstant));
 }
 
+export function formatMelbourneStamp(isoInstant: string): string {
+  const datePart = new Intl.DateTimeFormat("en-AU", {
+    timeZone: MELBOURNE,
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  }).format(new Date(isoInstant));
+  return `${datePart}, ${formatClockTime(isoInstant)}`;
+}
+
 export function formatClockTime(isoInstant: string): string {
   return new Intl.DateTimeFormat("en-AU", {
     timeZone: MELBOURNE,

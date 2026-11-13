@@ -1,5 +1,5 @@
 import postgres from "postgres";
-import type { Slate } from "@/lib/types";
+import type { Slate, TrackedMulti } from "@/lib/types";
 import type { CacheEntry, Store } from "@/lib/storage/types";
 
 let client: ReturnType<typeof postgres> | null = null;
@@ -58,6 +58,35 @@ export function createPostgresStore(): Store {
         on conflict (cache_key) do update
         set body = excluded.body, fetched_at = excluded.fetched_at
       `;
+    },
+    async listTrackedMultis(slateDate) {
+      const rows = slateDate
+        ? await sql()<{ payload: TrackedMulti }[]>`
+            select payload from tracked_multis
+            where slate_date = ${slateDate}
+            order by created_at desc
+          `
+        : await sql()<{ payload: TrackedMulti }[]>`
+            select payload from tracked_multis order by created_at desc
+          `;
+      return rows.map((row) => row.payload);
+    },
+    async getTrackedMulti(id) {
+      const rows = await sql()<{ payload: TrackedMulti }[]>`
+        select payload from tracked_multis where id = ${id}
+      `;
+      return rows[0]?.payload ?? null;
+    },
+    async putTrackedMulti(multi) {
+      await sql()`
+        insert into tracked_multis (id, slate_date, size, payload, created_at, updated_at)
+        values (${multi.id}, ${multi.slateDate}, ${multi.size}, ${sql().json(multi as never)}, ${multi.savedAt}, now())
+        on conflict (id) do update
+        set payload = excluded.payload, size = excluded.size, updated_at = now()
+      `;
+    },
+    async deleteTrackedMulti(id) {
+      await sql()`delete from tracked_multis where id = ${id}`;
     },
   };
 }

@@ -1,5 +1,7 @@
 import { applyProgress, gameNeedsBox, shouldPoll } from "@/lib/slate/build";
+import { syncTrackedGrades } from "@/lib/multis/persist";
 import { getStore } from "@/lib/storage";
+import type { TrackedMulti } from "@/lib/types";
 
 export async function GET(request: Request) {
   const date = new URL(request.url).searchParams.get("date");
@@ -16,8 +18,15 @@ export async function GET(request: Request) {
     ),
   );
   const slate = refresh ? await applyProgress(stored) : stored;
+  let tracked: TrackedMulti[] | undefined;
+  try {
+    const graded = await syncTrackedGrades([slate]);
+    tracked = graded.filter((multi) => multi.slateDate === date);
+  } catch (error) {
+    console.log(`[multis] live grade skipped: ${error instanceof Error ? error.message : error}`);
+  }
   return Response.json(
-    { slate, poll: shouldPoll(slate), asOf: new Date().toISOString() },
+    { slate, poll: shouldPoll(slate), asOf: new Date().toISOString(), ...(tracked ? { tracked } : {}) },
     { headers: { "Cache-Control": "public, s-maxage=30, stale-while-revalidate=30" } },
   );
 }

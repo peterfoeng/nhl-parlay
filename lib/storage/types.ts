@@ -1,4 +1,4 @@
-import type { Slate } from "@/lib/types";
+import type { Slate, TrackedMulti } from "@/lib/types";
 
 export type CacheEntry = {
   body: string;
@@ -11,4 +11,8 @@ export type Store = {
   listSlates(): Promise<Slate[]>;
   getCache(key: string): Promise<CacheEntry | null>;
   putCache(key: string, body: string, fetchedAt: string): Promise<void>;
+  listTrackedMultis(slateDate?: string): Promise<TrackedMulti[]>;
+  getTrackedMulti(id: string): Promise<TrackedMulti | null>;
+  putTrackedMulti(multi: TrackedMulti): Promise<void>;
+  deleteTrackedMulti(id: string): Promise<void>;
 };

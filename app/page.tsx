@@ -1,9 +1,10 @@
 import { Suspense } from "react";
 import { connection } from "next/server";
 import { LiveSlate } from "@/components/live-slate";
+import { readTracked } from "@/lib/multis/persist";
+import { pickFeatured } from "@/lib/slate/feature";
 import { shouldPoll } from "@/lib/slate/build";
 import { getStore } from "@/lib/storage";
-import type { Slate } from "@/lib/types";
 
 export default function Page() {
   return (
@@ -29,21 +30,14 @@ async function HomeBody() {
       </section>
     );
   }
+  const tracked = (await readTracked([slate])).filter((multi) => multi.slateDate === slate.slateDate);
   return (
     <LiveSlate
       key={`${slate.slateDate}:${slate.builtAt}`}
       slate={slate}
       poll={shouldPoll(slate)}
       otherDates={slates.map((item) => item.slateDate)}
+      tracked={tracked}
     />
   );
-}
-
-function pickFeatured(slates: Slate[]): Slate | null {
-  if (!slates.length) return null;
-  const alive = slates
-    .filter((slate) => slate.parlay?.status === "ALIVE")
-    .sort((a, b) => a.slateDate.localeCompare(b.slateDate));
-  if (alive.length) return alive[0];
-  return [...slates].sort((a, b) => b.slateDate.localeCompare(a.slateDate))[0];
 }
