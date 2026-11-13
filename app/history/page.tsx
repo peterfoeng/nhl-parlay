@@ -3,7 +3,10 @@ import Link from "next/link";
 import { connection } from "next/server";
 import { formatDecimal, formatPercent, formatUnits } from "@/lib/format";
 import { summarizeHistory, type SummaryParlay } from "@/lib/history/summary";
+import { readTracked } from "@/lib/multis/persist";
+import { trackedRecord } from "@/lib/multis/track";
 import { getStore } from "@/lib/storage";
+import type { TrackedMulti } from "@/lib/types";
 
 export default function Page() {
   return (
@@ -16,6 +19,8 @@ export default function Page() {
 async function HistoryBody() {
   await connection();
   const slates = await getStore().listSlates();
+  const tracked = await readTracked(slates);
+  const record = trackedRecord(tracked);
   const summary = summarizeHistory({
     parlays: slates.flatMap((slate) => (slate.parlay ? [toSummary(slate.slateDate, slate.parlay)] : [])),
     legs: slates.flatMap((slate) =>
@@ -46,6 +51,29 @@ async function HistoryBody() {
         <>
           <ParlayTable title="Open" rows={open} />
           <ParlayTable title="Settled" rows={settled} />
+        </>
+      )}
+
+      <h2 className="mt-8 text-lg font-semibold">Tracked multis</h2>
+      <p className="mt-1 text-sm text-muted">
+        Separate from the daily 3-leg card. Won, lost and void are settled results. Open multis are still in progress.
+      </p>
+      {tracked.length === 0 ? (
+        <p className="mt-2 text-sm text-muted">No tracked multi has been saved yet.</p>
+      ) : (
+        <>
+          <section className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <Stat label="Record" value={`${record.won}-${record.lost}-${record.voided}`} />
+            <Stat label="Open" value={String(record.open)} />
+            {record.bySize.map((row) => (
+              <Stat
+                key={row.size}
+                label={`${row.size} legs`}
+                value={`${row.won}-${row.lost}-${row.voided}${row.open ? ` · ${row.open} open` : ""}`}
+              />
+            ))}
+          </section>
+          <TrackedTable rows={[...tracked].sort((a, b) => b.savedAt.localeCompare(a.savedAt))} />
         </>
       )}
 
@@ -136,6 +164,41 @@ function ParlayTable({ title, rows }: { title: string; rows: SummaryParlay[] }) 
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+function TrackedTable({ rows }: { rows: TrackedMulti[] }) {
+  return (
+    <div className="mt-3 overflow-x-auto">
+      <table className="w-full text-left text-sm">
+        <thead className="text-xs tracking-wide text-muted uppercase">
+          <tr>
+            <th className="py-2 pr-3 font-medium">Date</th>
+            <th className="py-2 pr-3 font-medium">Legs</th>
+            <th className="py-2 pr-3 font-medium">Result</th>
+            <th className="py-2 pr-3 font-medium">Price</th>
+            <th className="py-2 font-medium">Model</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.id} className="border-t border-white/10">
+              <td className="py-2 pr-3">
+                <Link href={`/day/${row.slateDate}`} className="underline decoration-white/20 underline-offset-2">
+                  {row.slateDate}
+                </Link>
+              </td>
+              <td className="py-2 pr-3 tabular-nums">{row.size}</td>
+              <td className="py-2 pr-3">
+                {row.status} · {row.hitCount}/{row.size}
+              </td>
+              <td className="py-2 pr-3 tabular-nums">{formatDecimal(row.decimalOdds)}</td>
+              <td className="py-2 tabular-nums">{formatPercent(row.modelProb)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

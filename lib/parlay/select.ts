@@ -1,5 +1,5 @@
 /**
- * Pick a 3-leg parlay from priced legs.
+ * Pick an N-leg parlay from priced legs.
  *
  * A leg is good value when it has a real decimal price and a strictly positive
  * edge (model probability minus the price's implied probability).
@@ -8,14 +8,15 @@
  * 1. Keep at most one leg per game. Inside a game, keep the positive-edge leg
  *    with the highest model probability. Ties go to the higher edge, then the
  *    higher decimal price.
- * 2. Among those one-per-game legs, take the three with the highest model
+ * 2. Among those one-per-game legs, take the N with the highest model
  *    probabilities. With positive probabilities and one leg per game, that is
  *    the combination with the largest product.
- * 3. Fewer than three qualifying games means there is no parlay. Legs without
- *    a real price are ignored, whatever their model probability.
+ * 3. Fewer than N qualifying games means there is no parlay. Legs without a
+ *    real price are ignored, whatever their model probability.
  *
- * Combined model probability is the product of the three (games treated as
- * independent). Combined decimal odds are the product of the three prices.
+ * Combined model probability is the product of the N probabilities (games
+ * treated as independent). Combined decimal odds are the product of the prices.
+ * The daily card is this rule with N = 3.
  */
 export type SelectableLeg = {
   id: string;
@@ -32,6 +33,38 @@ export function selectParlay(legs: SelectableLeg[]): {
   legIds: string[] | null;
   note: string;
 } {
+  return selectMulti(legs, 3);
+}
+
+export function selectMulti(
+  legs: SelectableLeg[],
+  count: number,
+): {
+  legIds: string[] | null;
+  note: string;
+} {
+  const representatives = representativesByGame(legs);
+  if (representatives.length < count) {
+    const games = representatives.length;
+    const gameWord = games === 1 ? "game" : "games";
+    const name = count === 3 ? "parlay" : "multi";
+    return {
+      legIds: null,
+      note: `No ${count}-leg ${name}. ${games} ${gameWord} had a positive-edge price, and the card needs ${count} different games.`,
+    };
+  }
+
+  return {
+    legIds: representatives.slice(0, count).map((leg) => leg.id),
+    note: count === 3 ? PARLAY_RULE : multiRule(count),
+  };
+}
+
+export function multiRule(count: number): string {
+  return `${count} legs, ${count} games. Each leg needs a posted price and a positive edge (model % minus implied %). One leg per game: the highest model probability among positive-edge prices, tie-broken by edge then price. The ${count} games with the highest of those probabilities maximise the product. Games are treated as independent.`;
+}
+
+export function representativesByGame(legs: SelectableLeg[]): SelectableLeg[] {
   const priced = legs.filter(
     (leg) =>
       leg.decimalOdds != null &&
@@ -47,19 +80,7 @@ export function selectParlay(legs: SelectableLeg[]): {
     if (!current || beats(leg, current)) byGame.set(leg.gameId, leg);
   }
 
-  const representatives = [...byGame.values()].sort(byProbability);
-  if (representatives.length < 3) {
-    const games = representatives.length;
-    return {
-      legIds: null,
-      note: `No 3-leg parlay. ${games} ${games === 1 ? "game" : "games"} had a positive-edge price, and the card needs 3 different games.`,
-    };
-  }
-
-  return {
-    legIds: representatives.slice(0, 3).map((leg) => leg.id),
-    note: PARLAY_RULE,
-  };
+  return [...byGame.values()].sort(byProbability);
 }
 
 export function combinedModelProbability(probabilities: number[]): number {

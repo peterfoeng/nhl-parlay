@@ -1,10 +1,11 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { Slate } from "@/lib/types";
+import type { Slate, TrackedMulti } from "@/lib/types";
 import type { CacheEntry, Store } from "@/lib/storage/types";
 
 type FileShape = {
   slates: Record<string, Slate>;
+  multis: Record<string, TrackedMulti>;
 };
 
 export function dataDir(): string {
@@ -25,35 +26,40 @@ export function createFileStore(root = dataDir()): Store {
     return run;
   };
 
-  const readSlates = async (): Promise<FileShape> => {
+  const readShape = async (): Promise<FileShape> => {
     try {
       const text = await readFile(file, "utf8");
-      const parsed = JSON.parse(text) as FileShape;
-      return { slates: parsed.slates ?? {} };
+      const parsed = JSON.parse(text) as Partial<FileShape>;
+      return { slates: parsed.slates ?? {}, multis: parsed.multis ?? {} };
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return { slates: {} };
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return { slates: {}, multis: {} };
       throw error;
     }
   };
 
-  const writeSlates = async (shape: FileShape) => {
+  const writeShape = async (shape: FileShape) => {
     await mkdir(root, { recursive: true });
     const temp = `${file}.${process.pid}.tmp`;
     await writeFile(temp, JSON.stringify(shape));
     await rename(temp, file);
   };
 
+  const listMultis = (shape: FileShape, slateDate?: string) =>
+    Object.values(shape.multis)
+      .filter((multi) => (slateDate ? multi.slateDate === slateDate : true))
+      .sort((a, b) => b.savedAt.localeCompare(a.savedAt));
+
   return {
-    getSlate: (date) => enqueue(async () => (await readSlates()).slates[date] ?? null),
+    getSlate: (date) => enqueue(async () => (await readShape()).slates[date] ?? null),
     putSlate: (slate) =>
       enqueue(async () => {
-        const shape = await readSlates();
+        const shape = await readShape();
         shape.slates[slate.slateDate] = slate;
-        await writeSlates(shape);
+        await writeShape(shape);
       }),
     listSlates: () =>
       enqueue(async () =>
-        Object.values((await readSlates()).slates).sort((a, b) => b.slateDate.localeCompare(a.slateDate)),
+        Object.values((await readShape()).slates).sort((a, b) => b.slateDate.localeCompare(a.slateDate)),
       ),
     getCache: (key) =>
       enqueue(async () => {
@@ -72,6 +78,20 @@ export function createFileStore(root = dataDir()): Store {
         const temp = `${target}.${process.pid}.tmp`;
         await writeFile(temp, JSON.stringify({ body, fetchedAt } satisfies CacheEntry));
         await rename(temp, target);
+      }),
+    listTrackedMultis: (slateDate) => enqueue(async () => listMultis(await readShape(), slateDate)),
+    getTrackedMulti: (id) => enqueue(async () => (await readShape()).multis[id] ?? null),
+    putTrackedMulti: (multi) =>
+      enqueue(async () => {
+        const shape = await readShape();
+        shape.multis[multi.id] = multi;
+        await writeShape(shape);
+      }),
+    deleteTrackedMulti: (id) =>
+      enqueue(async () => {
+        const shape = await readShape();
+        delete shape.multis[id];
+        await writeShape(shape);
       }),
   };
 }

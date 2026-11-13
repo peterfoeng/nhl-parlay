@@ -45,6 +45,44 @@ export type Leg = {
   startTimeUtc: string;
 };
 
+export type TrackedLeg = {
+  id: string;
+  gameId: number;
+  playerId: number;
+  playerName: string;
+  teamAbbrev: string;
+  market: MarketId;
+  matchup: string;
+  modelProb: number;
+  decimalOdds: number;
+  edge: number;
+  priceSource: string | null;
+  book: string;
+  headshot: string;
+  teamLogo: string;
+  target: number;
+  startTimeUtc: string;
+  status: LegStatus;
+  current: number;
+  clockLabel: string;
+  gameState: string;
+};
+
+export type TrackedMulti = {
+  id: string;
+  slateDate: string;
+  size: number;
+  savedAt: string;
+  savedLabel: string;
+  legs: TrackedLeg[];
+  decimalOdds: number;
+  modelProb: number;
+  impliedProb: number;
+  edge: number;
+  status: ParlayStatus;
+  hitCount: number;
+};
+
 export type Parlay = {
   legIds: string[];
   decimalOdds: number;

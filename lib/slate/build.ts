@@ -21,6 +21,7 @@ import {
   toOddsReport,
 } from "@/lib/slate/prices";
 import { pickStarter, teamGoalieFactor, type StarterCandidate } from "@/lib/slate/starter";
+import { syncTrackedGrades } from "@/lib/multis/persist";
 import { getStore } from "@/lib/storage";
 import { round } from "@/lib/format";
 import { formatKickoff, formatSlateDay, gameClockLabel, melbourneToday, previousDate } from "@/lib/time";
@@ -365,6 +366,11 @@ export async function applyProgress(slate: Slate): Promise<Slate> {
   }
   next.gradedAt = new Date().toISOString();
   await getStore().putSlate(next);
+  try {
+    await syncTrackedGrades([next]);
+  } catch (error) {
+    console.log(`[multis] grade skipped: ${error instanceof Error ? error.message : error}`);
+  }
   return next;
 }
 

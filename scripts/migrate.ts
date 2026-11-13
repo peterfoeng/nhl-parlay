@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import postgres from "postgres";
 
@@ -15,11 +15,14 @@ async function main() {
     ...(local || /sslmode=/.test(url) ? {} : { ssl: "require" as const }),
   });
 
-  const file = path.join(process.cwd(), "db/migrations/001_init.sql");
-  const text = await readFile(file, "utf8");
-  await sql.unsafe(text);
+  const directory = path.join(process.cwd(), "db/migrations");
+  const files = (await readdir(directory)).filter((file) => file.endsWith(".sql")).sort();
+  for (const file of files) {
+    const text = await readFile(path.join(directory, file), "utf8");
+    await sql.unsafe(text);
+    console.log(`Applied db/migrations/${file}`);
+  }
   await sql.end();
-  console.log("Applied db/migrations/001_init.sql");
 }
 
 main().catch((error: unknown) => {
